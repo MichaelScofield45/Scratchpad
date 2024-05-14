@@ -1,0 +1,15 @@
+.{
+    .name = "Curve",
+    .version = "0.0.0",
+
+    .dependencies = .{ .raylib = .{
+        .url = "git+https://github.com/raysan5/raylib.git#f1007554a0a8145060797c0aa8169bdaf2c1c6b8",
+        .hash = "122010f0c2d62be418f9b3a4bb9e8f647ae8c66ae2c24f88e395b6567daf6d2bc520",
+    } },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
