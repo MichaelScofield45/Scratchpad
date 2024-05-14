@@ -1,13 +1,24 @@
 const std = @import("std");
 const rl = @import("c.zig");
-const ArenaBuffer = @import("ArenaBuffer.zig");
 
-const raywhite = rl.RAYWHITE;
-const green = rl.GREEN;
+const Curve = struct {
+    color: rl.Color,
+    first: ?*Point = null,
+    last: ?*Point = null,
 
-const Points = struct {
-    first: *Point,
-    last: *Point,
+    pub fn appendPointPtr(self: *Curve, p: *Point) void {
+        if (self.last) |*last| {
+            last.*.next = p;
+            last.* = p;
+        } else {
+            self.first = p;
+            self.last = p;
+        }
+    }
+
+    pub fn isEmpty(self: Curve) bool {
+        return self.first == null;
+    }
 };
 
 const Point = struct {
@@ -18,62 +29,87 @@ const Point = struct {
 pub fn main() !void {
     rl.InitWindow(800, 800, "Curve");
 
-    var arena = try ArenaBuffer.init(4 * 1024 * 1024 * 1024);
-    defer arena.deinit();
+    var arena_instance_pool = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance_pool.deinit();
+    const arena_pool = arena_instance_pool.allocator();
 
-    var point: ?*Point = null;
-    var points = Points{
-        .first = undefined,
-        .last = undefined,
-    };
+    var pool = try std.heap.MemoryPool(Point).initPreheated(arena_pool, 10_000);
+
+    var arena_instance_curves = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance_curves.deinit();
+    const arena_curves = arena_instance_curves.allocator();
+
+    var curves = try std.ArrayList(Curve).initCapacity(arena_curves, 1024);
+
+    try curves.append(.{ .color = rl.BLACK });
+    var mouse_left_held = false;
+    var curr_idx: usize = 0;
+    var curr_pos: ?rl.Vector2 = null;
 
     while (!rl.WindowShouldClose()) {
         const mouse_pos = rl.GetMousePosition();
         // const frametime = rl.GetFrameTime();
-        const mouse_delta = rl.GetMouseDelta();
-        const mouse_delta_length = rl.Vector2Length(mouse_delta);
+        // const mouse_delta = rl.GetMouseDelta();
+        // const mouse_delta_length = rl.Vector2Length(mouse_delta);
+
+        if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) {
+            mouse_left_held = true;
+            curr_pos = mouse_pos;
+        }
+
+        if (rl.IsMouseButtonUp(rl.MOUSE_BUTTON_LEFT)) {
+            if (mouse_left_held) {
+                try curves.append(.{ .color = rl.BLACK });
+                curr_idx += 1;
+            }
+            mouse_left_held = false;
+            curr_pos = null;
+        }
+
+        if (mouse_left_held) {
+            const new_point: *Point = blk: {
+                const mem = try pool.create();
+                mem.* = Point{ .vec2 = mouse_pos };
+                break :blk mem;
+            };
+
+            curves.items[curr_idx].appendPointPtr(new_point);
+        }
+
+        std.debug.print(
+            "{}\n",
+            .{std.fmt.fmtIntSizeDec(arena_instance_pool.queryCapacity())},
+        );
 
         rl.BeginDrawing();
         defer rl.EndDrawing();
-        rl.ClearBackground(raywhite);
+        rl.ClearBackground(rl.RAYWHITE);
 
-        if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) {
-            if (point) |_| {
-                const last_point = points.last;
-                const offset = rl.Vector2Subtract(mouse_pos, last_point.vec2);
-                // std.debug.print("offset: {:.3}\n", .{rl.Vector2LengthSqr(offset)});
-                std.debug.print("{}", .{arena});
-
-                if (rl.Vector2Length(offset) > std.math.exp(mouse_delta_length * 100) + 5.0) {
-                    last_point.next = blk: {
-                        const mem = try arena.push(Point);
-                        mem.vec2 = mouse_pos;
-                        break :blk mem;
-                    };
-                    points.last = last_point.next.?;
-                }
-            } else {
-                point = blk: {
-                    const mem = try arena.push(Point);
-                    mem.vec2 = mouse_pos;
-                    break :blk mem;
-                };
-                points.first = point.?;
-                points.last = point.?;
+        for (curves.items, 0..) |curve, idx| {
+            if (!curve.isEmpty()) {
+                if (idx == curves.items.len -| 1)
+                    drawActiveCurve(curve, curr_pos)
+                else
+                    drawCurve(curve);
             }
         }
-
-        if (point) |p| drawLines(p);
     }
     rl.CloseWindow();
 }
 
-fn drawLines(first_curve_point: *Point) void {
-    var prev_point = first_curve_point;
-    var next_ptr = first_curve_point.next;
-    while (next_ptr) |np| {
-        rl.DrawLineEx(prev_point.vec2, np.vec2, 1, rl.BLACK);
-        prev_point = np;
-        next_ptr = np.next;
+fn drawCurve(curve: Curve) void {
+    drawLines(curve.first.?, curve.color);
+}
+
+fn drawActiveCurve(curve: Curve, curr_pos: ?rl.Vector2) void {
+    drawLines(curve.first.?, curve.color);
+    if (curr_pos) |pos|
+        rl.DrawLineEx(curve.last.?.vec2, pos, 1, curve.color);
+}
+
+fn drawLines(first_point: *Point, color: rl.Color) void {
+    if (first_point.next) |second_point| {
+        rl.DrawLineEx(first_point.vec2, second_point.vec2, 1, color);
+        drawLines(second_point, color);
     }
 }
