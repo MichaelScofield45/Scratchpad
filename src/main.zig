@@ -1,13 +1,15 @@
 const std = @import("std");
 const rl = @import("c.zig");
-const ArrayListArena = @import("ArrayListArena.zig").ArrayListArena;
+const ArrayListArena = @import("ds.zig").ArrayListArena;
+const MemoryPoolArena = @import("ds.zig").MemoryPoolArena;
 
 const Curve = struct {
     color: rl.Color,
+    n_points: usize = 0,
     first: ?*Point = null,
     last: ?*Point = null,
 
-    pub fn appendPointPtr(self: *Curve, p: *Point) void {
+    pub fn appendPoint(self: *Curve, p: *Point) void {
         if (self.last) |*last| {
             last.*.next = p;
             last.* = p;
@@ -15,6 +17,7 @@ const Curve = struct {
             self.first = p;
             self.last = p;
         }
+        self.n_points += 1;
     }
 
     pub fn isEmpty(self: Curve) bool {
@@ -36,18 +39,17 @@ pub fn main() !void {
 
     var pool = try std.heap.MemoryPool(Point).initPreheated(arena_pool, 10_000);
 
-    var curves = try ArrayListArena(Curve).init();
+    var curves = try ArrayListArena(Curve).init(null);
 
     try curves.append(.{ .color = rl.BLACK });
     var mouse_left_held = false;
-    var curr_idx: usize = 0;
+    var active_curve_idx: usize = 0;
     var curr_pos: ?rl.Vector2 = null;
 
     while (!rl.WindowShouldClose()) {
         const mouse_pos = rl.GetMousePosition();
-        // const frametime = rl.GetFrameTime();
-        // const mouse_delta = rl.GetMouseDelta();
-        // const mouse_delta_length = rl.Vector2Length(mouse_delta);
+        const mouse_delta = rl.GetMouseDelta();
+        const mouse_delta_length = rl.Vector2Length(mouse_delta);
 
         if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) {
             mouse_left_held = true;
@@ -57,7 +59,7 @@ pub fn main() !void {
         if (rl.IsMouseButtonUp(rl.MOUSE_BUTTON_LEFT)) {
             if (mouse_left_held) {
                 try curves.append(.{ .color = rl.BLACK });
-                curr_idx += 1;
+                active_curve_idx += 1;
             }
             mouse_left_held = false;
             curr_pos = null;
@@ -66,32 +68,51 @@ pub fn main() !void {
         if (rl.IsKeyPressed(rl.KEY_C)) {
             curves.clear();
             _ = pool.reset(.retain_capacity);
-            curr_idx = 0;
             try curves.append(.{ .color = rl.BLACK });
+            active_curve_idx = 0;
         }
 
-        if (mouse_left_held) {
-            const new_point: *Point = blk: {
-                const mem = try pool.create();
-                mem.* = Point{ .vec2 = mouse_pos };
-                break :blk mem;
-            };
+        const curves_slice = curves.slice();
 
-            curves.slice()[curr_idx].appendPointPtr(new_point);
+        if (mouse_left_held and mouse_delta_length > 0.0) {
+            if (curves_slice[active_curve_idx].last) |last_point| {
+                const offset_from_last_point = rl.Vector2Subtract(mouse_pos, last_point.vec2);
+                const offset_length = rl.Vector2Length(offset_from_last_point);
+
+                // const lower_bound_distance = 2.5 + std.math.exp(mouse_delta_length * 0.1);
+                const lower_bound_distance = std.math.exp(mouse_delta_length * 0.2);
+                // std.log.info("lower bound distance: {}", .{lower_bound_distance});
+
+                if (offset_length >= lower_bound_distance) {
+                    const new_point: *Point = blk: {
+                        const mem = try pool.create();
+                        mem.* = Point{ .vec2 = mouse_pos };
+                        break :blk mem;
+                    };
+                    curves_slice[active_curve_idx].appendPoint(new_point);
+                }
+            } else {
+                const new_point: *Point = blk: {
+                    const mem = try pool.create();
+                    mem.* = Point{ .vec2 = mouse_pos };
+                    break :blk mem;
+                };
+                curves_slice[active_curve_idx].appendPoint(new_point);
+            }
+
+            std.debug.print(
+                "{}\n",
+                .{curves_slice[active_curve_idx].n_points},
+            );
         }
-
-        std.debug.print(
-            "{}\n",
-            .{std.fmt.fmtIntSizeDec(arena_instance_pool.queryCapacity())},
-        );
 
         rl.BeginDrawing();
         defer rl.EndDrawing();
         rl.ClearBackground(rl.RAYWHITE);
 
-        for (curves.slice(), 0..) |curve, idx| {
+        for (curves_slice, 0..) |curve, idx| {
             if (!curve.isEmpty()) {
-                if (idx == curves.slice().len -| 1)
+                if (idx == curves_slice.len -| 1)
                     drawActiveCurve(curve, curr_pos)
                 else
                     drawCurve(curve);
