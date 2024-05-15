@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("c.zig");
+const ArrayListArena = @import("ArrayListArena.zig").ArrayListArena;
 
 const Curve = struct {
     color: rl.Color,
@@ -35,11 +36,7 @@ pub fn main() !void {
 
     var pool = try std.heap.MemoryPool(Point).initPreheated(arena_pool, 10_000);
 
-    var arena_instance_curves = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance_curves.deinit();
-    const arena_curves = arena_instance_curves.allocator();
-
-    var curves = try std.ArrayList(Curve).initCapacity(arena_curves, 1024);
+    var curves = try ArrayListArena(Curve).init();
 
     try curves.append(.{ .color = rl.BLACK });
     var mouse_left_held = false;
@@ -66,6 +63,13 @@ pub fn main() !void {
             curr_pos = null;
         }
 
+        if (rl.IsKeyPressed(rl.KEY_C)) {
+            curves.clear();
+            _ = pool.reset(.retain_capacity);
+            curr_idx = 0;
+            try curves.append(.{ .color = rl.BLACK });
+        }
+
         if (mouse_left_held) {
             const new_point: *Point = blk: {
                 const mem = try pool.create();
@@ -73,7 +77,7 @@ pub fn main() !void {
                 break :blk mem;
             };
 
-            curves.items[curr_idx].appendPointPtr(new_point);
+            curves.slice()[curr_idx].appendPointPtr(new_point);
         }
 
         std.debug.print(
@@ -85,9 +89,9 @@ pub fn main() !void {
         defer rl.EndDrawing();
         rl.ClearBackground(rl.RAYWHITE);
 
-        for (curves.items, 0..) |curve, idx| {
+        for (curves.slice(), 0..) |curve, idx| {
             if (!curve.isEmpty()) {
-                if (idx == curves.items.len -| 1)
+                if (idx == curves.slice().len -| 1)
                     drawActiveCurve(curve, curr_pos)
                 else
                     drawCurve(curve);
@@ -104,12 +108,12 @@ fn drawCurve(curve: Curve) void {
 fn drawActiveCurve(curve: Curve, curr_pos: ?rl.Vector2) void {
     drawLines(curve.first.?, curve.color);
     if (curr_pos) |pos|
-        rl.DrawLineEx(curve.last.?.vec2, pos, 1, curve.color);
+        rl.DrawLineEx(curve.last.?.vec2, pos, 2, curve.color);
 }
 
 fn drawLines(first_point: *Point, color: rl.Color) void {
     if (first_point.next) |second_point| {
-        rl.DrawLineEx(first_point.vec2, second_point.vec2, 1, color);
+        rl.DrawLineEx(first_point.vec2, second_point.vec2, 2, color);
         drawLines(second_point, color);
     }
 }
