@@ -40,8 +40,11 @@ pub fn main() !void {
     var pool = try std.heap.MemoryPool(Point).initPreheated(arena_pool, 10_000);
 
     var curves = try ArrayListArena(Curve).init(null);
+    defer curves.deinit();
 
-    try curves.append(.{ .color = rl.BLACK });
+    var active_color: rl.Color = rl.BLACK;
+    try curves.append(.{ .color = active_color });
+
     var mouse_left_held = false;
     var active_curve_idx: usize = 0;
     var curr_pos: ?rl.Vector2 = null;
@@ -52,15 +55,15 @@ pub fn main() !void {
         const mouse_delta_length = rl.Vector2Length(mouse_delta);
 
         if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) {
+            if (!mouse_left_held) {
+                try curves.append(.{ .color = active_color });
+                active_curve_idx += 1;
+            }
             mouse_left_held = true;
             curr_pos = mouse_pos;
         }
 
         if (rl.IsMouseButtonUp(rl.MOUSE_BUTTON_LEFT)) {
-            if (mouse_left_held) {
-                try curves.append(.{ .color = rl.BLACK });
-                active_curve_idx += 1;
-            }
             mouse_left_held = false;
             curr_pos = null;
         }
@@ -68,9 +71,12 @@ pub fn main() !void {
         if (rl.IsKeyPressed(rl.KEY_C)) {
             curves.clear();
             _ = pool.reset(.retain_capacity);
-            try curves.append(.{ .color = rl.BLACK });
+            try curves.append(.{ .color = active_color });
             active_curve_idx = 0;
         }
+
+        if (rl.IsKeyPressed(rl.KEY_ONE)) active_color = rl.BLACK;
+        if (rl.IsKeyPressed(rl.KEY_TWO)) active_color = rl.RED;
 
         const curves_slice = curves.slice();
 
@@ -79,9 +85,7 @@ pub fn main() !void {
                 const offset_from_last_point = rl.Vector2Subtract(mouse_pos, last_point.vec2);
                 const offset_length = rl.Vector2Length(offset_from_last_point);
 
-                // const lower_bound_distance = 2.5 + std.math.exp(mouse_delta_length * 0.1);
                 const lower_bound_distance = std.math.exp(mouse_delta_length * 0.2);
-                // std.log.info("lower bound distance: {}", .{lower_bound_distance});
 
                 if (offset_length >= lower_bound_distance) {
                     const new_point: *Point = blk: {
